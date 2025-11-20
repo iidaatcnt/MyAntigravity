@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Colorful Puzzle</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+            font-family: 'Varela Round', sans-serif;
+            overflow: hidden;
+        }
+
+        h1 {
+            color: #555;
+            margin-bottom: 10px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 0px #fff;
+        }
+
+        #score-board {
+            background: white;
+            padding: 10px 30px;
+            border-radius: 50px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            font-size: 1.5rem;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        #score {
+            color: #ff6b6b;
+        }
+
+        #game-container {
+            position: relative;
+            width: 400px;
+            height: 400px;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            gap: 5px;
+            user-select: none;
+        }
+
+        .block {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s, top 0.3s ease-in;
+            position: relative;
+            /* For falling animation if we used absolute, but grid handles layout nicely. We'll use transforms for animation or just grid updates. Actually, for smooth falling, absolute positioning is better, but grid is easier for logic. Let's stick to grid for simplicity and use simple fade/scale for now, or maybe a simple drop animation class. */
+            /* Redesign: To make them fall smoothly, we need absolute positioning within the grid cells? No, let's just swap colors and animate appearance. */
+            /* Better approach for "falling": Just update the grid data and let the UI refresh. For "smoothness", we can add a keyframe when a block "arrives". */
+        }
+
+        .block:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            filter: brightness(1.1);
+        }
+
+        .block.popping {
+            animation: pop 0.3s forwards;
+        }
+
+        .block.falling {
+            animation: fall 0.3s ease-out;
+        }
+
+        @keyframes pop {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+
+            100% {
+                transform: scale(0);
+                opacity: 0;
+            }
+        }
+
+        @keyframes fall {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Colors */
+        .color-0 {
+            background: #ff6b6b;
+            box-shadow: inset 0 -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Red */
+        .color-1 {
+            background: #4ecdc4;
+            box-shadow: inset 0 -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Teal */
+        .color-2 {
+            background: #ffe66d;
+            box-shadow: inset 0 -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Yellow */
+        .color-3 {
+            background: #1a535c;
+            box-shadow: inset 0 -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Dark Blue */
+        .color-4 {
+            background: #ff9f43;
+            box-shadow: inset 0 -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Orange */
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+    <h1>Puzzle Pop!</h1>
+    <div id="score-board">Score: <span id="score">0</span></div>
+    <div id="game-container"></div>
+    <div id="instructions">
+        <p><strong>How to Play:</strong> Click on a group of <strong>3 or more</strong> blocks of the same color to pop
+            them!</p>
+    </div>
+
+    <style>
+        #instructions {
+            margin-top: 20px;
+            color: #777;
+            font-size: 1.1rem;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 20px;
+        }
+    </style>
+
+    <script>
+        const ROWS = 8;
+        const COLS = 8;
+        const COLORS = 5;
+        const container = document.getElementById('game-container');
+        const scoreElement = document.getElementById('score');
+
+        let grid = [];
+        let score = 0;
+        let isAnimating = false;
+
+        // Initialize Game
+        function init() {
+            grid = [];
+            for (let r = 0; r < ROWS; r++) {
+                const row = [];
+                for (let c = 0; c < COLS; c++) {
+                    row.push(Math.floor(Math.random() * COLORS));
+                }
+                grid.push(row);
+            }
+            render();
+        }
+
+        // Render Grid
+        function render() {
+            container.innerHTML = '';
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const block = document.createElement('div');
+                    block.className = `block color-${grid[r][c]}`;
+                    block.dataset.r = r;
+                    block.dataset.c = c;
+                    block.onclick = () => handleClick(r, c);
+                    container.appendChild(block);
+                }
+            }
+        }
+
+        // Handle Click
+        function handleClick(r, c) {
+            if (isAnimating) return;
+
+            const color = grid[r][c];
+            const matches = findMatches(r, c, color);
+
+            if (matches.length >= 3) {
+                isAnimating = true;
+                score += matches.length * 10;
+                scoreElement.innerText = score;
+
+                // Animate removal
+                matches.forEach(({ r, c }) => {
+                    const index = r * COLS + c;
+                    const block = container.children[index];
+                    block.classList.add('popping');
+                });
+
+                setTimeout(() => {
+                    removeMatches(matches);
+                    applyGravity();
+                    render(); // Re-render to show new state
+
+                    // Add falling animation class to new/moved blocks could be complex with full re-render
+                    // For this simple version, the "pop" is the main feedback.
+
+                    isAnimating = false;
+
+                    // Check if there are no moves? (Optional for advanced polish)
+                }, 300);
+            }
+        }
+
+        // Find connected blocks (Flood Fill)
+        function findMatches(r, c, color) {
+            const matches = [];
+            const visited = new Set();
+            const queue = [{ r, c }];
+            visited.add(`${r},${c}`);
+
+            while (queue.length > 0) {
+                const { r: currR, c: currC } = queue.shift();
+                matches.push({ r: currR, c: currC });
+
+                const directions = [
+                    { dr: -1, dc: 0 }, { dr: 1, dc: 0 },
+                    { dr: 0, dc: -1 }, { dr: 0, dc: 1 }
+                ];
+
+                for (const { dr, dc } of directions) {
+                    const nr = currR + dr;
+                    const nc = currC + dc;
+
+                    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                        const key = `${nr},${nc}`;
+                        if (!visited.has(key) && grid[nr][nc] === color) {
+                            visited.add(key);
+                            queue.push({ r: nr, c: nc });
+                        }
+                    }
+                }
+            }
+            return matches;
+        }
+
+        // Remove blocks
+        function removeMatches(matches) {
+            // Sort matches by row descending to handle gravity correctly if we were doing it in-place,
+            // but here we just mark them as -1 (empty) first.
+            for (const { r, c } of matches) {
+                grid[r][c] = -1;
+            }
+        }
+
+        // Apply Gravity
+        function applyGravity() {
+            for (let c = 0; c < COLS; c++) {
+                let writeRow = ROWS - 1;
+                // Move existing blocks down
+                for (let r = ROWS - 1; r >= 0; r--) {
+                    if (grid[r][c] !== -1) {
+                        grid[writeRow][c] = grid[r][c];
+                        writeRow--;
+                    }
+                }
+                // Fill top with new random blocks
+                while (writeRow >= 0) {
+                    grid[writeRow][c] = Math.floor(Math.random() * COLORS);
+                    writeRow--;
+                }
+            }
+        }
+
+        init();
+
+    </script>
+</body>
+
+</html>

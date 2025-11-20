@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>SF Cockpit Shooter</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* コックピットUI (HUD) */
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* クリックを透過させる */
+            box-sizing: border-box;
+            /* コックピットのフレーム */
+            background: radial-gradient(circle at center, transparent 60%, rgba(0, 20, 40, 0.8) 90%, #000 100%);
+        }
+
+        /* コックピットの物理的な枠（イメージ） */
+        .cockpit-frame {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 40px solid #1a1a1a;
+            border-bottom: 120px solid #1a1a1a;
+            border-radius: 20px;
+            box-shadow: inset 0 0 50px #000;
+            opacity: 0.9;
+            z-index: 1;
+        }
+
+        /* レティクル（照準） */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 60px;
+            height: 60px;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(0, 255, 255, 0.6);
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+            transition: width 0.1s, height 0.1s;
+            z-index: 2;
+        }
+
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: #f0f;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 5px #f0f;
+        }
+
+        #crosshair.shooting {
+            width: 50px;
+            height: 50px;
+            border-color: rgba(255, 0, 255, 0.8);
+        }
+
+        /* スコアとステータス */
+        .hud-panel {
+            position: absolute;
+            bottom: 30px;
+            padding: 10px 20px;
+            background: rgba(0, 20, 40, 0.7);
+            border: 1px solid #0ff;
+            border-radius: 5px;
+            color: #0ff;
+            font-size: 20px;
+            text-shadow: 0 0 5px #0ff;
+            z-index: 2;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #info {
+            left: 60px;
+        }
+
+        #weapon-status {
+            right: 60px;
+            color: #f0f;
+            border-color: #f0f;
+            text-shadow: 0 0 5px #f0f;
+        }
+
+        /* 装飾ライン */
+        .line {
+            position: absolute;
+            background: rgba(0, 255, 255, 0.2);
+            z-index: 2;
+        }
+
+        .l1 {
+            top: 25%;
+            left: 20%;
+            width: 1px;
+            height: 50%;
+        }
+
+        .l2 {
+            top: 25%;
+            right: 20%;
+            width: 1px;
+            height: 50%;
+        }
+
+        .l3 {
+            top: 50%;
+            left: 20%;
+            width: 100px;
+            height: 1px;
+        }
+
+        .l4 {
+            top: 50%;
+            right: 20%;
+            width: 100px;
+            height: 1px;
+        }
+
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff3333;
+            font-size: 60px;
+            font-weight: bold;
+            text-align: center;
+            text-shadow: 0 0 20px #ff0000;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border: 4px solid #ff3333;
+            border-radius: 10px;
+            z-index: 10;
+            box-shadow: 0 0 50px rgba(255, 0, 0, 0.5);
+        }
+
+        #game-over span {
+            display: block;
+            margin-top: 20px;
+            font-size: 24px;
+            color: white;
+            text-shadow: none;
+            animation: blink 1s infinite;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        @keyframes blink {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="hud">
+        <div class="cockpit-frame"></div>
+        <div id="crosshair"></div>
+        <div class="line l1"></div>
+        <div class="line l2"></div>
+        <div class="line l3"></div>
+        <div class="line l4"></div>
+        <div id="info" class="hud-panel">SCORE: <span id="score">0</span></div>
+        <div id="weapon-status" class="hud-panel">SYSTEM: ONLINE</div>
+        <div id="game-over">WARNING: CRITICAL DAMAGE<br><span onclick="resetGame()">Click to Reboot System</span></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- 1. 初期設定 ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050510, 0.0025); // 宇宙っぽい暗い青
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // ライト
+        const ambientLight = new THREE.AmbientLight(0x404040); // 環境光
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 10, 5);
+        scene.add(dirLight);
+        const pointLight = new THREE.PointLight(0x00ffff, 0.5, 50); // プレイヤー周りの光
+        pointLight.position.set(0, 0, 0);
+        scene.add(pointLight);
+
+        // --- 2. オブジェクト生成関数 ---
+
+        // 宇宙空間の星
+        function createStars() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < 8000; i++) {
+                vertices.push((Math.random() - 0.5) * 2000);
+                vertices.push((Math.random() - 0.5) * 2000);
+                vertices.push((Math.random() - 0.5) * 2000);
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, transparent: true, opacity: 0.8 });
+            const stars = new THREE.Points(geometry, material);
+            scene.add(stars);
+            return stars;
+        }
+        const starField = createStars();
+
+        // 弾丸クラス
+        class Bullet {
+            constructor(position, direction) {
+                this.speed = 8; // 弾速アップ
+                this.mesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.05, 0.05, 4, 8),
+                    new THREE.MeshBasicMaterial({ color: 0x00ffff, blending: THREE.AdditiveBlending })
+                );
+                this.mesh.position.copy(position);
+                this.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+                this.mesh.rotation.x += Math.PI / 2;
+                this.direction = direction.clone();
+                scene.add(this.mesh);
+                this.alive = true;
+            }
+            update() {
+                this.mesh.position.add(this.direction.clone().multiplyScalar(this.speed));
+                if (this.mesh.position.distanceTo(camera.position) > 500) {
+                    this.remove();
+                }
+            }
+            remove() {
+                this.alive = false;
+                scene.remove(this.mesh);
+            }
+        }
+
+        // 敵クラス（飛行機タイプ）
+        class EnemyPlane {
+            constructor() {
+                const group = new THREE.Group();
+
+                // 本体
+                const bodyGeo = new THREE.ConeGeometry(1, 5, 4);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.8 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                body.rotation.x = Math.PI / 2;
+                group.add(body);
+
+                // 翼
+                const wingGeo = new THREE.BufferGeometry();
+                const wingVertices = new Float32Array([
+                    0, 0, 1, 2, 0, -1, 0, 0, -2,
+                    0, 0, 1, -2, 0, -1, 0, 0, -2
+                ]);
+                wingGeo.setAttribute('position', new THREE.BufferAttribute(wingVertices, 3));
+                wingGeo.computeVertexNormals();
+                const wingMat = new THREE.MeshStandardMaterial({ color: 0xff3333, side: THREE.DoubleSide });
+                const wings = new THREE.Mesh(wingGeo, wingMat);
+                group.add(wings);
+
+                // エンジン光
+                const engineGeo = new THREE.SphereGeometry(0.3);
+                const engineMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+                const engine = new THREE.Mesh(engineGeo, engineMat);
+                engine.position.z = 2.5;
+                group.add(engine);
+
+                this.mesh = group;
+                this.spawn();
+                scene.add(this.mesh);
+                this.alive = true;
+                this.type = 'plane';
+                this.speed = 0.6;
+                this.rotSpeed = (Math.random() - 0.5) * 0.1;
+            }
+            spawn() {
+                this.mesh.position.set(
+                    (Math.random() - 0.5) * 150,
+                    (Math.random() - 0.5) * 80,
+                    -300 - Math.random() * 100
+                );
+                this.mesh.lookAt(camera.position); // プレイヤーの方を向く
+            }
+            update() {
+                this.mesh.translateZ(this.speed); // 自分の向いている方向に進む
+                this.mesh.rotation.z += this.rotSpeed;
+
+                if (this.mesh.position.z > 20) this.remove(false);
+            }
+            remove(killed) {
+                this.alive = false;
+                scene.remove(this.mesh);
+                if (killed) createExplosion(this.mesh.position, 0xffaa00);
+            }
+        }
+
+        // 敵クラス（モンスタータイプ）
+        class EnemyMonster {
+            constructor() {
+                const group = new THREE.Group();
+
+                // コア
+                const mainGeo = new THREE.IcosahedronGeometry(2, 1);
+                const mainMat = new THREE.MeshStandardMaterial({
+                    color: 0x8800ff,
+                    roughness: 0.4,
+                    metalness: 0.5,
+                    emissive: 0x220044
+                });
+                this.body = new THREE.Mesh(mainGeo, mainMat);
+                group.add(this.body);
+
+                // トゲトゲ
+                for (let i = 0; i < 8; i++) {
+                    const spikeGeo = new THREE.ConeGeometry(0.3, 2, 8);
+                    const spikeMat = new THREE.MeshStandardMaterial({ color: 0xcc00ff });
+                    const spike = new THREE.Mesh(spikeGeo, spikeMat);
+                    spike.position.set(
+                        (Math.random() - 0.5) * 3,
+                        (Math.random() - 0.5) * 3,
+                        (Math.random() - 0.5) * 3
+                    );
+                    spike.lookAt(0, 0, 0);
+                    this.body.add(spike);
+                }
+
+                this.mesh = group;
+                this.spawn();
+                scene.add(this.mesh);
+                this.alive = true;
+                this.type = 'monster';
+                this.speed = 0.3;
+                this.time = Math.random() * 100;
+            }
+            spawn() {
+                this.mesh.position.set(
+                    (Math.random() - 0.5) * 120,
+                    (Math.random() - 0.5) * 70,
+                    -300 - Math.random() * 100
+                );
+            }
+            update() {
+                this.time += 0.05;
+                this.mesh.position.z += this.speed;
+
+                // 有機的な動き
+                this.mesh.position.x += Math.sin(this.time) * 0.3;
+                this.mesh.position.y += Math.cos(this.time * 0.8) * 0.3;
+
+                this.body.rotation.x += 0.02;
+                this.body.rotation.y += 0.03;
+
+                // 脈動
+                const scale = 1 + Math.sin(this.time * 2) * 0.1;
+                this.body.scale.set(scale, scale, scale);
+
+                if (this.mesh.position.z > 20) this.remove(false);
+            }
+            remove(killed) {
+                this.alive = false;
+                scene.remove(this.mesh);
+                if (killed) createExplosion(this.mesh.position, 0xaa00ff);
+            }
+        }
+
+        // 爆発エフェクト
+        function createExplosion(pos, color) {
+            const particleCount = 40;
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions.push(pos.x, pos.y, pos.z);
+                velocities.push(
+                    (Math.random() - 0.5) * 3,
+                    (Math.random() - 0.5) * 3,
+                    (Math.random() - 0.5) * 3
+                );
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const material = new THREE.PointsMaterial({
+                color: color,
+                size: 0.8,
+                transparent: true,
+                blending: THREE.AdditiveBlending
+            });
+            const particles = new THREE.Points(geometry, material);
+
+            particles.userData = {
+                velocities: velocities,
+                life: 1.0 // 寿命
+            };
+
+            scene.add(particles);
+            explosions.push(particles);
+        }
+
+        // --- 3. ゲームループ関連 ---
+
+        const bullets = [];
+        const enemies = [];
+        const explosions = [];
+        let score = 0;
+        let isGameOver = false;
+
+        // マウス操作
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+
+        document.addEventListener('mousemove', (event) => {
+            if (isGameOver) return;
+            // 画面中心を(0,0)とする正規化座標
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // クリックで発射
+        document.addEventListener('mousedown', () => {
+            if (isGameOver) return;
+
+            // UIアニメーション
+            const crosshair = document.getElementById('crosshair');
+            crosshair.classList.add('shooting');
+            setTimeout(() => crosshair.classList.remove('shooting'), 100);
+
+            // カメラの向いている方向に発射
+            const vector = new THREE.Vector3(0, 0, -1);
+            vector.applyQuaternion(camera.quaternion);
+
+            // 発射位置（左右の翼から交互に出すとかっこいいが、とりあえず中央下）
+            const pos = camera.position.clone();
+            pos.y -= 0.5;
+            // 少し前進させて自機との被りを防ぐ
+            pos.add(vector.clone().multiplyScalar(2));
+
+            bullets.push(new Bullet(pos, vector));
+        });
+
+        // リサイズ対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ゲームリセット（グローバル関数にしてHTMLから呼べるように）
+        window.resetGame = function () {
+            isGameOver = false;
+            score = 0;
+            document.getElementById('score').innerText = score;
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('hud').style.pointerEvents = 'none'; // ゲーム中はクリック透過
+
+            // 全オブジェクト削除
+            enemies.forEach(e => scene.remove(e.mesh));
+            enemies.length = 0;
+            bullets.forEach(b => b.remove());
+            bullets.length = 0;
+            explosions.forEach(e => scene.remove(e));
+            explosions.length = 0;
+        };
+
+        function update() {
+            if (isGameOver) return;
+
+            // カメラの回転（遅延追従で重厚感を出す）
+            targetRotationY = mouseX * 0.8;
+            targetRotationX = mouseY * 0.5;
+
+            camera.rotation.y += (targetRotationY - camera.rotation.y) * 0.1;
+            camera.rotation.x += (targetRotationX - camera.rotation.x) * 0.1;
+
+            // 飛行機のような傾き（ロール）を加える
+            camera.rotation.z = -mouseX * 0.3;
+
+            // 星空を動かして前進感を出す
+            // 実際には星をZ軸手前に動かす
+            // ここでは簡易的にパーティクル全体を回すか、個別に動かすか
+            // 今回はカメラは固定で敵が来るスタイルなので、星も手前に流す
+            const positions = starField.geometry.attributes.position.array;
+            for (let i = 2; i < positions.length; i += 3) {
+                positions[i] += 2; // スピード
+                if (positions[i] > 500) positions[i] = -1500; // ループ
+            }
+            starField.geometry.attributes.position.needsUpdate = true;
+
+            // 敵のスポーン
+            // スコアが上がると難易度アップ
+            const spawnRate = 0.01 + (score / 20000);
+            if (Math.random() < spawnRate) {
+                if (Math.random() < 0.6) enemies.push(new EnemyPlane());
+                else enemies.push(new EnemyMonster());
+            }
+
+            // 弾の更新
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                if (!bullets[i].alive) bullets.splice(i, 1);
+            }
+
+            // 敵の更新と当たり判定
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                enemy.update();
+
+                // プレイヤーへの衝突判定
+                // カメラ位置(0,0,0)付近に来たらアウト
+                if (enemy.mesh.position.z > -2 && enemy.mesh.position.distanceTo(camera.position) < 5) {
+                    isGameOver = true;
+                    document.getElementById('game-over').style.display = 'block';
+                    document.getElementById('hud').style.pointerEvents = 'auto'; // リセットボタン押せるように
+                }
+
+                // 弾との当たり判定
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const bullet = bullets[j];
+                    if (enemy.mesh.position.distanceTo(bullet.mesh.position) < 6) {
+                        enemy.remove(true); // 撃破
+                        bullet.remove();
+                        enemies.splice(i, 1);
+                        score += 100;
+                        document.getElementById('score').innerText = score;
+                        break;
+                    }
+                }
+
+                if (!enemy.alive && enemies.includes(enemy)) {
+                    enemies.splice(i, 1);
+                }
+            }
+
+            // 爆発の更新
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const p = explosions[i];
+                p.userData.life -= 0.05;
+
+                const positions = p.geometry.attributes.position.array;
+                const vels = p.userData.velocities;
+
+                for (let j = 0; j < vels.length; j++) {
+                    positions[j * 3] += vels[j * 3];
+                    positions[j * 3 + 1] += vels[j * 3 + 1];
+                    positions[j * 3 + 2] += vels[j * 3 + 2];
+                }
+                p.geometry.attributes.position.needsUpdate = true;
+                p.material.opacity = p.userData.life;
+
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    explosions.splice(i, 1);
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏈 PRO KICKER 3D</title>
+    <style>
+        /* --- ベース設定 --- */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            user-select: none;
+            /* テキスト選択不可 */
+        }
+
+        /* --- 3Dシーンのコンテナ --- */
+        #scene-container {
+            width: 100vw;
+            height: 100vh;
+            perspective: 1000px;
+            /* 奥行きの深さ */
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #001133 0%, #003366 50%, #66ccff 100%);
+            /* 空のグラデーション */
+        }
+
+        /* スタジアムのライト効果 */
+        .stadium-lights {
+            position: absolute;
+            top: -50px;
+            left: 0;
+            width: 100%;
+            height: 300px;
+            background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.4) 0%, transparent 60%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* --- 3Dワールド（カメラワーク用） --- */
+        #world {
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transform: rotateX(20deg) translateY(100px) translateZ(-100px);
+            /* 初期カメラ位置 */
+            transition: transform 1.5s ease-out;
+        }
+
+        /* --- 地面（フィールド） --- */
+        #field {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2000px;
+            height: 2000px;
+            background:
+                linear-gradient(rgba(0, 0, 0, 0.1) 1px, transparent 1px),
+                /* グリッド線（横） */
+                repeating-linear-gradient(0deg, #2e8b57 0px, #2e8b57 100px, #3cb371 100px, #3cb371 200px);
+            /* 芝生の縞模様 */
+            transform: translate(-50%, -50%) rotateX(90deg);
+            transform-origin: center center;
+            border: 20px solid #fff;
+            /* サイドライン */
+            box-shadow: 0 0 100px rgba(0, 0, 0, 0.5);
+        }
+
+        /* ヤードラインの数字（簡易表現） */
+        .yard-line {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%) rotateX(-90deg);
+            /* 文字を起こす */
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 40px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px black;
+        }
+
+        /* --- ゴールポスト (3D構築) --- */
+        #goal-post-container {
+            position: absolute;
+            top: -900px;
+            /* フィールドの奥 */
+            left: 50%;
+            transform: translateX(-50%) rotateX(90deg);
+            /* 地面に垂直に立てる */
+            transform-style: preserve-3d;
+        }
+
+        .post-pole {
+            position: absolute;
+            bottom: 0;
+            width: 10px;
+            height: 150px;
+            background: #FFD700;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        .post-crossbar {
+            position: absolute;
+            bottom: 150px;
+            left: -75px;
+            width: 150px;
+            height: 10px;
+            background: #FFD700;
+        }
+
+        .post-upright {
+            position: absolute;
+            bottom: 160px;
+            width: 10px;
+            height: 200px;
+            background: #FFD700;
+        }
+
+        /* --- ボール (3D) --- */
+        #ball {
+            position: absolute;
+            top: 50%;
+            /* 画面中央（フィールドの手前） */
+            left: 50%;
+            width: 30px;
+            height: 45px;
+            background: radial-gradient(circle at 30% 30%, #8B4513, #5a2d0c);
+            border-radius: 50% 50% 45% 45%;
+            /* 卵型 */
+            transform: translate(-50%, -50%) translateZ(20px);
+            /* 少し浮かせる */
+            box-shadow: 0 20px 10px rgba(0, 0, 0, 0.3);
+            /* 影 */
+            z-index: 100;
+            transition: all 0.1s;
+            /* アニメーション用 */
+        }
+
+        #ball::after {
+            /* ボールの縫い目 */
+            content: '';
+            position: absolute;
+            top: 10%;
+            left: 45%;
+            width: 10%;
+            height: 80%;
+            border-left: 2px dashed white;
+        }
+
+        /* --- キッカー (CSSキャラ) --- */
+        #kicker {
+            position: absolute;
+            top: 60%;
+            /* ボールの手前 */
+            left: 50%;
+            transform: translate(-50%, -50%) translateZ(0);
+            width: 60px;
+            height: 120px;
+            z-index: 101;
+            transition: top 0.8s ease-in, left 0.8s ease-in;
+            /* 助走アニメーション */
+        }
+
+        .k-head {
+            width: 30px;
+            height: 30px;
+            background: #ffccaa;
+            /* 肌色 */
+            border-radius: 50%;
+            margin: 0 auto;
+            position: relative;
+            background: radial-gradient(circle at 70% 30%, #ffccaa, #d49a75);
+        }
+
+        /* ヘルメット */
+        .k-head::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -2px;
+            width: 34px;
+            height: 20px;
+            background: #003399;
+            /* チームカラー */
+            border-radius: 15px 15px 5px 5px;
+        }
+
+        .k-body {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(to bottom, #003399, #002266);
+            margin: -5px auto 0;
+            border-radius: 10px 10px 5px 5px;
+            position: relative;
+        }
+
+        /* 背番号 */
+        .k-body::after {
+            content: '10';
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-weight: bold;
+            font-family: impact, sans-serif;
+        }
+
+        .k-legs {
+            display: flex;
+            justify-content: center;
+        }
+
+        .k-leg {
+            width: 12px;
+            height: 40px;
+            background: white;
+            margin: 0 3px;
+            border-radius: 0 0 5px 5px;
+        }
+
+        .k-shoe {
+            width: 14px;
+            height: 10px;
+            background: black;
+            margin-top: 35px;
+            /* 足の下 */
+            border-radius: 2px;
+        }
+
+
+        /* --- UI オーバーレイ --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* クリックを下のレイヤーに通す */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* スコアボード（TV中継風） */
+        .scoreboard-top {
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+        }
+
+        .score-box {
+            background: rgba(0, 51, 153, 0.9);
+            color: white;
+            padding: 10px 30px;
+            border-radius: 5px;
+            border-bottom: 4px solid #FFD700;
+            font-size: 1.5em;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .wind-box {
+            background: rgba(50, 50, 50, 0.8);
+            color: #eee;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* コントロールパネル（下部） */
+        #controls-container {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            /* すりガラス効果 */
+            padding: 20px;
+            border-top: 2px solid rgba(255, 255, 255, 0.1);
+            pointer-events: auto;
+            /* ここだけ操作可能に */
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-bottom: 40px;
+        }
+
+        /* スライダー類のデザイン */
+        .control-row {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 15px;
+        }
+
+        .control-group {
+            flex: 1;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-size: 0.9em;
+            color: #aaa;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .val-display {
+            color: #FFD700;
+            font-weight: bold;
+            float: right;
+        }
+
+        input[type=range] {
+            width: 100%;
+            accent-color: #FFD700;
+        }
+
+        /* パワーゲージ */
+        #power-meter-frame {
+            width: 100%;
+            max-width: 500px;
+            height: 40px;
+            background: #333;
+            border: 3px solid #555;
+            border-radius: 20px;
+            position: relative;
+            overflow: hidden;
+            margin: 10px auto;
+            box-shadow: inset 0 0 10px #000;
+        }
+
+        #power-target {
+            position: absolute;
+            left: 45%;
+            width: 10%;
+            height: 100%;
+            background: linear-gradient(to right, transparent, rgba(0, 255, 0, 0.6), transparent);
+            border-left: 2px solid #0f0;
+            border-right: 2px solid #0f0;
+            z-index: 1;
+        }
+
+        #power-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(to right, #ff3300, #ffff00, #00ff00);
+            transition: width 0.05s linear;
+        }
+
+        /* メインボタン */
+        #action-btn {
+            background: linear-gradient(to bottom, #FFD700, #B8860B);
+            border: none;
+            padding: 15px 60px;
+            font-size: 1.5em;
+            font-weight: 900;
+            color: #333;
+            border-radius: 30px;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 5px 0 #8B6508, 0 10px 20px rgba(0, 0, 0, 0.5);
+            transition: transform 0.1s, box-shadow 0.1s;
+            margin-top: 10px;
+        }
+
+        #action-btn:active {
+            transform: translateY(5px);
+            box-shadow: 0 0 0 #8B6508, 0 5px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        #action-btn:disabled {
+            background: #555;
+            color: #888;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        /* メッセージオーバーレイ */
+        #overlay-message {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 4em;
+            font-weight: 900;
+            color: white;
+            text-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            opacity: 0;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 200;
+            text-align: center;
+        }
+
+        #overlay-message.show {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+
+        .sub-text {
+            display: block;
+            font-size: 0.3em;
+            color: #FFD700;
+            margin-top: 10px;
+        }
+
+        /* アニメーション定義 */
+        @keyframes kick-swing {
+            0% {
+                transform: rotateX(0);
+            }
+
+            50% {
+                transform: rotateX(-45deg);
+            }
+
+            /* 振りかぶり */
+            100% {
+                transform: rotateX(45deg);
+            }
+
+            /* キック */
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="scene-container">
+        <div class="stadium-lights"></div>
+        <div id="world">
+            <div id="field">
+                <div class="yard-line" style="top: 900px;">10</div>
+                <div class="yard-line" style="top: 800px;">20</div>
+                <div class="yard-line" style="top: 700px;">30</div>
+                <div class="yard-line" style="top: 600px;">40</div>
+                <div class="yard-line" style="top: 500px;">50</div>
+            </div>
+
+            <div id="goal-post-container">
+                <div class="post-pole" style="left: -75px;"></div>
+                <div class="post-pole" style="left: 75px;"></div>
+                <div class="post-crossbar"></div>
+                <div class="post-upright" style="left: -75px;"></div>
+                <div class="post-upright" style="left: 75px;"></div>
+            </div>
+
+            <div id="ball"></div>
+
+            <div id="kicker">
+                <div class="k-head"></div>
+                <div class="k-body"></div>
+                <div class="k-legs">
+                    <div class="k-leg">
+                        <div class="k-shoe"></div>
+                    </div>
+                    <div class="k-leg">
+                        <div class="k-shoe"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ui-layer">
+        <div class="scoreboard-top">
+            <div class="wind-box">
+                <span style="font-size: 1.5em">💨</span>
+                <div>
+                    <div style="font-size: 0.7em; color: #aaa;">WIND</div>
+                    <span id="wind-speed">0</span> MPH <span id="wind-dir">N</span>
+                </div>
+            </div>
+            <div class="score-box">
+                <div style="font-size: 0.4em; text-align: center; color: #aaa;">SCORE</div>
+                <span id="current-score">0</span>
+            </div>
+        </div>
+
+        <div id="overlay-message">
+            TOUCHDOWN!
+            <span class="sub-text">+3 POINTS</span>
+        </div>
+
+        <div id="controls-container">
+            <div class="control-row">
+                <div class="control-group">
+                    <label>DISTANCE <span id="distance-value" class="val-display">40 YD</span></label>
+                    <input type="range" id="kick-distance-slider" min="20" max="60" value="40">
+                </div>
+                <div class="control-group">
+                    <label>ANGLE <span id="direction-value" class="val-display">0°</span></label>
+                    <input type="range" id="direction-input" min="-15" max="15" value="0">
+                </div>
+            </div>
+
+            <div style="width: 100%; max-width: 500px; text-align: left;">
+                <label>POWER METER</label>
+            </div>
+            <div id="power-meter-frame">
+                <div id="power-target"></div>
+                <div id="power-fill"></div>
+            </div>
+
+            <button id="action-btn" onclick="handleAction()">START POWER</button>
+        </div>
+    </div>
+
+    <script>
+        // --- ゲームの状態変数 ---
+        let state = 'IDLE'; // IDLE, POWER, KICKING, RESULT
+        let score = 0;
+        let windSpeed = 0;
+        let windDirection = 'N';
+
+        let powerValue = 0;
+        let powerIncreasing = true;
+        let powerInterval = null;
+        const POWER_SPEED = 3; // ゲージ速度
+
+        // --- DOM要素 ---
+        const ball = document.getElementById('ball');
+        const kicker = document.getElementById('kicker');
+        const world = document.getElementById('world');
+        const powerFill = document.getElementById('power-fill');
+        const actionBtn = document.getElementById('action-btn');
+        const msgOverlay = document.getElementById('overlay-message');
+        const sliderDist = document.getElementById('kick-distance-slider');
+        const sliderDir = document.getElementById('direction-input');
+
+        // --- 初期化 ---
+        function init() {
+            updateWind();
+            resetField();
+        }
+
+        function updateWind() {
+            windSpeed = Math.floor(Math.random() * 15);
+            const dirs = ['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW'];
+            windDirection = dirs[Math.floor(Math.random() * dirs.length)];
+            document.getElementById('wind-speed').textContent = windSpeed;
+            document.getElementById('wind-dir').textContent = windDirection;
+        }
+
+        function resetField() {
+            state = 'IDLE';
+            actionBtn.textContent = "START POWER";
+            actionBtn.disabled = false;
+            msgOverlay.classList.remove('show');
+
+            // パワーリセット
+            powerValue = 0;
+            powerFill.style.width = '0%';
+            powerFill.style.backgroundColor = 'linear-gradient(to right, #ff3300, #ffff00, #00ff00)';
+
+            // 位置リセット
+            ball.style.transition = 'none';
+            ball.style.transform = 'translate(-50%, -50%) translateZ(20px)';
+            ball.style.opacity = 1;
+
+            kicker.style.transition = 'none';
+            kicker.style.top = '60%';
+            kicker.style.left = '50%';
+            kicker.style.transform = 'translate(-50%, -50%) translateZ(0)';
+
+            world.style.transform = 'rotateX(20deg) translateY(100px) translateZ(-100px)';
+        }
+
+        // --- アクションハンドラー ---
+        function handleAction() {
+            if (state === 'IDLE') {
+                startPower();
+            } else if (state === 'POWER') {
+                stopPowerAndKick();
+            } else if (state === 'RESULT') {
+                resetField();
+                updateWind();
+            }
+        }
+
+        function startPower() {
+            state = 'POWER';
+            actionBtn.textContent = "KICK !";
+            powerInterval = setInterval(() => {
+                if (powerIncreasing) {
+                    powerValue += POWER_SPEED;
+                    if (powerValue >= 100) { powerValue = 100; powerIncreasing = false; }
+                } else {
+                    powerValue -= POWER_SPEED;
+                    if (powerValue <= 0) { powerValue = 0; powerIncreasing = true; }
+                }
+                powerFill.style.width = powerValue + '%';
+            }, 30); // 30ms更新
+        }
+
+        function stopPowerAndKick() {
+            clearInterval(powerInterval);
+            state = 'KICKING';
+            actionBtn.disabled = true;
+            actionBtn.textContent = "...";
+
+            // 1. キッカーの助走アニメーション
+            // プレイヤーの入力方向に応じてキッカーの位置を少しずらす（リアリティのため）
+            const angle = parseInt(sliderDir.value);
+            const startX = 50 - (angle * 0.5); // 角度に応じて立ち位置を変える
+
+            kicker.style.left = startX + '%';
+
+            setTimeout(() => {
+                // 助走開始
+                kicker.style.transition = 'top 0.5s ease-in, left 0.5s ease-in';
+                kicker.style.top = '52%'; // ボールのすぐ後ろへ
+                kicker.style.left = '50%'; // ボールの位置へ
+
+                // 足を振るアニメーション（簡易）
+                setTimeout(() => {
+                    performKickLogic();
+                }, 500);
+            }, 100);
+        }
+
+        // --- 物理演算とアニメーション ---
+        function performKickLogic() {
+            const distInput = parseInt(sliderDist.value);
+            const dirInput = parseInt(sliderDir.value);
+
+            // 成功判定ロジック（前回と同様だが微調整）
+            let isPerfectPower = (powerValue >= 45 && powerValue <= 55);
+            let powerFactor = isPerfectPower ? 1.2 : (0.5 + powerValue / 200); // 0.5 ~ 1.0
+
+            // 風の影響計算
+            let windEffect = 0;
+            if (windDirection.includes('E')) windEffect = windSpeed * 0.8;
+            if (windDirection.includes('W')) windEffect = -windSpeed * 0.8;
+
+            // 最終到達点計算
+            const actualDistance = distInput * powerFactor;
+            const deviation = dirInput * 2 + windEffect + (Math.random() * 5 - 2.5); // 乱数誤差
+
+            // 成功条件: 距離が足りていて、左右のズレが許容範囲内
+            // ゴールポストの幅は仮想的に ±15程度とする
+            const isGoal = (actualDistance >= distInput) && (Math.abs(deviation) < 15);
+
+            // --- アニメーション実行 ---
+
+            // 1. ボールの軌道
+            ball.style.transition = 'all 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+
+            // Y軸 (奥行き): 距離に応じて奥へ。ゴールまでは約 -900px
+            // X軸 (左右): deviationに応じて左右へ
+            // Z軸 (高さ): 放物線を描く必要があるが、CSS transitionでは直線移動になるため
+            //            到達点を高く設定し、重力感は擬似的に表現する
+
+            let targetY = -500 - (actualDistance * 15); // 距離をピクセルに変換
+            let targetX = deviation * 20; // 横ズレをピクセルに変換
+            let targetZ = 300; // 高さ（成功時は高く）
+
+            if (!isGoal && actualDistance < distInput) {
+                targetZ = 50; // 距離不足なら低く
+                targetY = -200; // 手前に落ちる
+            }
+
+            ball.style.transform = `translate(calc(-50% + ${targetX}px), ${targetY}px) translateZ(${targetZ}px)`;
+
+            // 2. カメラ（World）の追従
+            world.style.transition = 'transform 1.5s ease-out';
+            // ボールを追いかけるようにカメラを少し持ち上げ、少しズームする
+            world.style.transform = `rotateX(40deg) translateY(300px) translateZ(-50px)`;
+
+            // 3. ボールが小さくなる（遠近法はperspectiveで自動だが、補助的に縮小）
+            // ball.style.width = '10px'; 
+
+            // --- 結果表示 ---
+            setTimeout(() => {
+                if (isGoal) {
+                    let points = 3 + (isPerfectPower ? 1 : 0); // ボーナス
+                    score += points;
+                    document.getElementById('current-score').textContent = score;
+                    showOverlay("IT'S GOOD!", `+${points} POINTS`);
+                } else {
+                    if (actualDistance < distInput) {
+                        showOverlay("SHORT!", "NOT ENOUGH POWER");
+                    } else {
+                        showOverlay("NO GOOD!", "WIDE " + (deviation > 0 ? "RIGHT" : "LEFT"));
+                    }
+                }
+
+                state = 'RESULT';
+                actionBtn.disabled = false;
+                actionBtn.textContent = "NEXT KICK";
+            }, 1600);
+        }
+
+        function showOverlay(main, sub) {
+            msgOverlay.innerHTML = `${main}<br><span class="sub-text">${sub}</span>`;
+            msgOverlay.classList.add('show');
+
+            // メッセージの色変更
+            if (main === "IT'S GOOD!") {
+                msgOverlay.style.color = "#FFD700";
+                msgOverlay.style.textShadow = "0 0 30px gold";
+            } else {
+                msgOverlay.style.color = "#ff4444";
+                msgOverlay.style.textShadow = "0 0 30px red";
+            }
+        }
+
+        // 入力イベント
+        sliderDist.oninput = (e) => document.getElementById('distance-value').textContent = e.target.value + " YD";
+        sliderDir.oninput = (e) => document.getElementById('direction-value').textContent = e.target.value + "°";
+
+        // 開始
+        init();
+
+    </script>
+</body>
+
+</html>
